@@ -1,0 +1,55 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function accountDoc() {
+      return get(/databases/$(database)/documents/accounts/$(request.auth.uid));
+    }
+
+    function isActiveAccount() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/accounts/$(request.auth.uid)) &&
+        accountDoc().data.disabled != true;
+    }
+
+    function isSuperAdmin() {
+      return isActiveAccount() && accountDoc().data.role == 'superadmin';
+    }
+
+    // Lịch công tác theo từng tuần — ai cũng xem được, chỉ tài khoản
+    // đã được cấp quyền (có trong accounts/ và chưa bị vô hiệu hóa) mới được sửa.
+    match /weeks/{weekId} {
+      allow read: if true;
+      allow write: if isActiveAccount();
+    }
+
+    // Danh sách 6 chức danh Lãnh đạo Văn phòng Tỉnh uỷ — ai cũng xem được, chỉ
+    // tài khoản đã được cấp quyền mới được sửa.
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if isActiveAccount();
+    }
+
+    // Hồ sơ tài khoản đăng nhập (họ tên, chức vụ, vai trò, trạng thái).
+    // Mọi tài khoản đã đăng nhập đều xem được danh sách và được thêm
+    // tài khoản mới (vai trò editor). Chỉ superadmin được sửa (vô hiệu
+    // hóa / kích hoạt lại, đổi vai trò). Không ai được xoá hẳn document.
+    match /accounts/{uid} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.disabled == false
+        && (request.resource.data.role == 'editor' || isSuperAdmin());
+      allow update: if isSuperAdmin();
+      allow delete: if false;
+    }
+
+    // Mặc định: chặn tất cả những gì không khớp các quy tắc trên.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
