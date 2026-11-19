@@ -5,6 +5,11 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import {
   initializeFirestore,
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  increment,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import {
   getAuth,
@@ -133,4 +138,40 @@ export function neighborWeekId(weekId, offsetWeeks) {
   const monday = weekIdToMonday(weekId);
   monday.setDate(monday.getDate() + offsetWeeks * 7);
   return getWeekId(monday);
+}
+
+// --- Bộ đếm lượt xem đơn giản (không thu thập dữ liệu cá nhân) -------------
+
+const VIEW_COUNTER_DOC = () => doc(db, "stats", "viewCounter");
+const UNIQUE_VISITOR_FLAG_KEY = "lctLdvpUniqueVisitorRecorded";
+
+export async function recordPageView() {
+  try {
+    const isNewVisitor = !localStorage.getItem(UNIQUE_VISITOR_FLAG_KEY);
+    const ref = VIEW_COUNTER_DOC();
+    const payload = { totalViews: increment(1) };
+    if (isNewVisitor) payload.uniqueVisitors = increment(1);
+    try {
+      await updateDoc(ref, payload);
+    } catch (e) {
+      // Document chưa tồn tại lần đầu tiên — tạo mới với giá trị khởi đầu.
+      await setDoc(ref, { totalViews: 1, uniqueVisitors: 1 });
+    }
+    if (isNewVisitor) localStorage.setItem(UNIQUE_VISITOR_FLAG_KEY, "1");
+  } catch (e) {
+    console.warn("Không ghi được lượt xem.", e);
+  }
+}
+
+export async function getPageViewStats() {
+  try {
+    const snap = await getDoc(VIEW_COUNTER_DOC());
+    if (snap.exists()) {
+      const data = snap.data();
+      return { totalViews: data.totalViews || 0, uniqueVisitors: data.uniqueVisitors || 0 };
+    }
+  } catch (e) {
+    console.warn("Không tải được thống kê lượt xem.", e);
+  }
+  return { totalViews: 0, uniqueVisitors: 0 };
 }
